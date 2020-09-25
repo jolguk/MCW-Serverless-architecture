@@ -72,10 +72,7 @@ Microsoft and the trademarks listed at <https://www.microsoft.com/legal/intellec
     - [Task 1: Add git repository to your Visual Studio solution and deploy to GitHub](#task-1-add-git-repository-to-your-visual-studio-solution-and-deploy-to-github)
     - [Task 2: Configure your Function App to use your GitHub repository for continuous deployment](#task-2-configure-your-function-app-to-use-your-github-repository-for-continuous-deployment)
     - [Task 3: Finish your ExportLicensePlates function code and push changes to GitHub to trigger deployment](#task-3-finish-your-exportlicenseplates-function-code-and-push-changes-to-github-to-trigger-deployment)
-  - [Exercise 8: Rerun the workflow and verify data export](#exercise-8-rerun-the-workflow-and-verify-data-export)
-    - [Task 1: Run the Logic App](#task-1-run-the-logic-app)
-    - [Task 2: View the exported CSV file](#task-2-view-the-exported-csv-file)
-  - [After the hands-on lab](#after-the-hands-on-lab)
+    - [After the hands-on lab](#after-the-hands-on-lab)
     - [Task 1: Delete the resource group in which you placed your Azure resources](#task-1-delete-the-resource-group-in-which-you-placed-your-azure-resources)
     - [Task 2: Delete the GitHub repo](#task-2-delete-the-github-repo)
 
@@ -99,8 +96,7 @@ Below is a diagram of the solution architecture you will build in this lab. Plea
 
 ![The Solution diagram is described in the text following this diagram.](../Whiteboard%20design%20session/media/preferred-solution.png 'Solution diagram')
 
-The solution begins with vehicle photos being uploaded to an Azure Storage blobs container, as they are captured. An Event Grid subscription is created against the Blob storage create event, calling the photo processing **Azure Function** endpoint (on the side of the diagram), which in turn sends the photo to the **Cognitive Services Computer Vision API OCR** service to extract the license plate data. If processing was successful and the license plate number was returned, the function submits a new Event Grid event, along with the data, to an Event Grid topic with an event type called "savePlateData". However, if the processing was unsuccessful, the function submits an Event Grid event to the topic with an event type called "queuePlateForManualCheckup". Two separate functions are configured to trigger when new events are added to the Event Grid topic, each filtering on a specific event type, both saving the relevant data to the appropriate **Azure Cosmos DB** collection for the outcome, using the Cosmos DB output binding. A **Logic App** that runs on a 15-minute interval executes an Azure Function via its HTTP trigger, which is responsible for obtaining new license plate data from Cosmos DB and exporting it to a new CSV file saved to Blob storage. If no new license plate records are found to export, the Logic App sends an email notification to the Customer Service department via their Office 365 subscription. **Application Insights** is used to monitor all of the Azure Functions in real-time as data is being processed through the serverless architecture. This real-time monitoring allows you to observe dynamic scaling first-hand and configure alerts when certain events take place. **Azure Key Vault** is used to securely store secrets, such as connection strings and access keys. Key Vault is accessed by the Function Apps through an access policy within Key Vault, assigned to each Function App's system-assigned managed identity.
-
+The solution begins with vehicle photos being uploaded to an Azure Storage blobs container, as they are captured. An Event Grid subscription is created against the Blob storage create event, calling the photo processing **Azure Function** endpoint (on the side of the diagram), which in turn sends the photo to the **Cognitive Services Computer Vision API OCR** service to extract the license plate data. If processing was successful and the license plate number was returned, the function submits a new Event Grid event, along with the data, to an Event Grid topic with an event type called "savePlateData". However, if the processing was unsuccessful, the function submits an Event Grid event to the topic with an event type called "queuePlateForManualCheckup". Two separate functions are configured to trigger when new events are added to the Event Grid topic, each filtering on a specific event type, both saving the relevant data to the appropriate **Azure Cosmos DB** collection for the outcome, using the Cosmos DB output binding. A **Logic App** that runs on a 15-minute interval executes an Azure Function via its HTTP trigger, which is responsible for obtaining new license plate data from Cosmos DB and exporting it to a new CSV file saved to Blob storage. If no new license plate records are found to export, the Logic App sends an email notification to the Customer Service department via their Office 365 subscription. **Application Insights** is used to monitor all of the Azure Functions in real-time as data is being processed through the serverless architecture. This real-time monitoring allows you to observe dynamic scaling first-hand and configure alerts when certain events take place.
 ## Requirements
 
 - Microsoft Azure subscription (non-Microsoft subscription).
@@ -437,96 +433,7 @@ In this exercise, you will provision a blob storage account using the Hot tier, 
 
 9. Paste the values into a text editor, such as Notepad, for later reference.
 
-### Task 6: Provision Azure Key Vault
 
-Azure Key Vault is used to securely store all secrets, such as database connection strings and keys.
-
-1. Navigate to the Azure portal, <http://portal.azure.com>.
-
-2. Select **+ Create a resource**, then enter **key vault** into the search box on top. Select **Key Vault** from the results.
-
-    ![In the Azure Portal, Create a resource is selected from the left menu and Key Vault is typed in the search box with Key Vault displaying in the suggested results.](media/search-key-vault.png 'Azure Portal')
-
-3. Select the **Create** button on the **Key Vault** **overview** blade.
-
-4. On the **Create key vault** blade, specify the following configuration options:
-
-    a. **Subscription**: Select your Azure subscription used for this lab.
-
-    b. **Resource group**: Select **ServerlessArchitecture**.
-
-    c. **Key vault name**: Unique value for the name such as **TollBoothVaultINIT** (ensure the green check mark appears).
-
-    d. **Region**: Select the same region as your Resource Group.
-
-    e. **Pricing tier**: Select **Standard**.
-
-    f. **Soft delete**: Select **Enable**.
-
-    g. **Retention period (days)**: Leave at 90.
-
-    h. **Purge protection**: Select **Disable**.
-
-    ![In the Create key vault blade, fields are set to the previously defined values.](media/create-key-vault.png 'Create blade')
-
-5. Select **Review + create**, then select **Create**.
-
-6. After the deployment completes, select **Go to resource**.
-
-    ![When the deployment completes, a message is displayed indicating Your deployment is complete. The Go to resource button is highlighted in the next steps section.](media/key-vault-deployment-complete.png "Your deployment is complete")
-
-7. Select **Secrets** under Settings in the left-hand menu.
-
-8. Select **Generate/Import** to add a new key.
-
-    ![The Secrets menu item and the Generate/Import button are highlighted.](media/generate-secret.png "Key Vault - Secrets")
-
-9. Use the table below for the Name / Value pairs to use when creating the secrets. You only need to populate the **Name** and **Value** fields for each secret, and can leave the other fields at their default values.
-
-    |                          |                                                                                                                                                             |
-    | ------------------------ | :---------------------------------------------------------------------------------------------------------------------------------------------------------: |
-    | **Name**      |                                                                          **Value**                                                                          |
-    | computerVisionApiKey     |                                                                   Computer Vision API key                                                                   |
-    | eventGridTopicKey        |                                                                 Event Grid Topic access key                                                                 |
-    | cosmosDBAuthorizationKey |                                                                    Cosmos DB Primary Key                                                                    |
-    | blobStorageConnection    |                                                               Blob storage connection string                                                                |
-
-    When you are finished creating the secrets, your list should look similar to the following:
-
-    ![The listing of secrets is displayed matching the previously defined values.](media/key-vault-keys.png "Key Vault Secrets")
-
-### Task 7: Retrieve the URI for each secret
-
-When you set the App Settings for the Function App in the next section below, you will need to reference the URI of a secret in Key Vault, including the version number. To do this, perform the following steps for each secret and **copy the values** to Notepad or similar text application.
-
-1. Open your Key Vault instance in the portal.
-
-2. Select **Secrets** under Settings in the left-hand menu.
-
-3. Select the secret whose URI value you wish to obtain.
-
-4. Select the **Current Version** of the secret.
-
-    ![The secret's current version is selected.](media/key-vault-secret-current-version.png "Current Version")
-
-5. Copy the **Secret Identifier**.
-
-    ![The Secret Identifier field is highlighted. Next to this field is a copy button.](media/key-vault-secret-identifier.png "Secret Identifier")
-
-    When you add the Key Vault reference to this secret within a Function App's App Settings, you will use the following format: `@Microsoft.KeyVault(SecretUri={referenceString})`, where `{referenceString}` is replaced by the Secret Identifier (URI) value above. **Be sure to remove the curly braces (`{}`)**.
-
-    For example, a complete reference would look like the following:
-
-    `@Microsoft.KeyVault(SecretUri=https://tollboothvault.vault.azure.net/secrets/blobStorageConnection/d6ea0e39236348539dc33565e031afc3)`
-
-When you are done creating the values, you should have a list similar to the following:
-
-```text
-@Microsoft.KeyVault(SecretUri=https://tollboothvault.vault.azure.net/secrets/blobStorageConnection/771aa40adac64af0b2aefbd741bd46ef)
-@Microsoft.KeyVault(SecretUri=https://tollboothvault.vault.azure.net/secrets/computerVisionApiKey/ce228a43f40140dd8a9ffb9a25d042ee)
-@Microsoft.KeyVault(SecretUri=https://tollboothvault.vault.azure.net/secrets/cosmosDBAuthorizationKey/1f9a0d16ad22409b85970b3c794a218c)
-@Microsoft.KeyVault(SecretUri=https://tollboothvault.vault.azure.net/secrets/eventGridTopicKey/e310bcd71a72489f89b6112234fed815)
-```
 
 ## Exercise 2: Develop and publish the photo processing and data export functions
 
